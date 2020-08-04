@@ -5,13 +5,18 @@
 int minChar = 32;
 int maxChar = 127;
 
+typedef unsigned char byte;
+const char* MARK = "**";
+const char* SPACE = "  ";
+
 void usage() {
 	printf("usage: alf fontfile.ttf fontsize\n");
 	printf("fontsize is desired height in px\n");
 }
 
 void print_raw_bmp(FT_Bitmap bmp, int left, int top) {
-	printf("Glyph size: %d x %d, left %d top -%d\n", bmp.width, bmp.rows, left, top);
+	printf("Glyph size: %d x %d, left %d top %d\n", bmp.width, bmp.rows, left, top);
+	return;
 	for (int y = 0; y < bmp.rows; y++) {
 		int bpr = bmp.width / 8 + (bmp.width % 8 ? 1 : 0);
 		int w = 0;
@@ -24,6 +29,41 @@ void print_raw_bmp(FT_Bitmap bmp, int left, int top) {
 			}
 			printf("\n");
 		}
+	}
+}
+
+void print_fs_bmp(FT_Bitmap bmp, int bmpLeft, int bmpTop, int cellWidth, int cellHeight, int cellBaseline) {
+	int topRows = cellHeight - bmpTop - cellBaseline;
+	int charRows = bmp.rows;
+	int bottomRows = cellHeight - topRows - charRows;
+
+	printf("Char %dx%d left %d top %d cell %dx%d -> topr %d, charr %d, botr %d\n", bmp.width,bmp.rows, bmpLeft,bmpTop,cellWidth,cellHeight,topRows,charRows, bottomRows);
+	
+	for (int y = 0; y < cellHeight; y++) {
+		if (y < topRows) {
+			printf("T ");
+			for (int x = 0; x < cellWidth; x++) printf(SPACE);
+		} else if (y < topRows + charRows) {
+			int cy = y - topRows;
+			printf("%02d", cy);
+			for (int x = 0; x < cellWidth; x++) {
+				int cx = x - bmpLeft;
+				if (x < bmpLeft) {
+					printf(SPACE);
+				} else if (cx < bmp.width) {
+					byte* row = bmp.buffer + (cy * bmp.pitch);
+					int o = cx / 8;
+					int s = 7 - (cx % 8);
+					printf("%s", row[o] & (1 << s) ? MARK : SPACE);
+				} else {
+					printf(SPACE);
+				}
+			}
+		} else {
+			printf("B ");
+			for (int x = 0; x < cellWidth; x++) printf(SPACE);
+		}
+		printf("|\n");
 	}
 }
 
@@ -69,34 +109,53 @@ int main(int argc, char** argv) {
 		return 2;
 	}
 	printf("\nSet font size to %dpx height\n\n", fs);
+	printf("Collecting stats\n");
 	
 	FT_GlyphSlot slot = face->glyph;
-	int minLeft = 10000;
-	int maxWidth = 0;
-	int maxTop = 0;;
-	int maxBot = 0;
-	printf("Collecting stats\n");
+	int minLeft = 1e6;
+	int maxRight = -1e6;
+	int minTop = 1e6;
+	int maxBot = -1e6;
 
 	for (int c = minChar; c <= maxChar; c++) {
 		int gidx = FT_Get_Char_Index(face, c);
+
 		err = FT_Load_Glyph(face, gidx, 0);
 		if (err) {
 			printf("Unable to load Glpyh %d into slot\n", gidx);
 			return 2;
 		}
+
 		err = FT_Render_Glyph(slot, FT_RENDER_MODE_MONO);
 		if (err) {
 			printf("Unable to render Glyph %d\n", gidx);
 			return 2;
 		}
-		if (slot->bitmap_left < minLeft) minLeft = slot->bitmap_left;
-		if (slot->bitmap.width + slot->bitmap_left > maxWidth) maxWidth = slot->bitmap.width + slot->bitmap_left;
-		if (slot->bitmap_top > maxTop) maxTop = slot->bitmap_top;
-		if (slot->bitmap.rows - slot->bitmap_top > maxBot) maxBot = slot->bitmap.rows - slot->bitmap_top; 
+		
+		int charLeft = slot->bitmap_left;
+		int charRight = slot->bitmap_left + slot->bitmap.width;
+		int charTop = -slot->bitmap_top;
+		int charBot = -slot->bitmap_top + slot->bitmap.rows;
+
+		if (charLeft < minLeft) minLeft = charLeft;
+		if (charRight > maxRight) maxRight = charRight;
+		if (charTop < minTop) minTop = charTop;
+		if (charBot > maxBot) maxBot = charBot;
 	}
 
-	printf("minLeft: %d, maxWidth: %d, maxTop: %d, maxBot: %d\n", minLeft, maxWidth, maxTop, maxBot);
-	printf("Cell Size: %d x %d\n", minLeft + maxWidth, maxTop - maxBot);
+	printf("Char BB: left %d right %d top %d bot %d\n", minLeft, maxRight, minTop, maxBot);
+
+	int cellWidth = maxRight - minLeft;
+	int cellHeight = maxBot - minTop;
+	printf("Cell Size: %d x %d\n", cellWidth, cellHeight);
+	printf("Rendering into fixed-size cell.\n");
+	
+	for (int c = minChar; c <= maxChar; c++) {
+		int gidx = FT_Get_Char_Index(face, c);
+		FT_Load_Glyph(face, gidx, 0);
+		FT_Render_Glyph(slot, FT_RENDER_MODE_MONO);
+		print_fs_bmp(slot->bitmap, slot->bitmap_left, slot->bitmap_top, cellWidth, cellHeight, maxBot);
+	}
 
 	return 0;
 }
