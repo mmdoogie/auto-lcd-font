@@ -11,12 +11,12 @@ const char* MARK = "**";
 const char* SPACE = "  ";
 
 void usage() {
-	printf("usage: alf fontfile.ttf fontsize\n");
-	printf("fontsize is desired height in px\n");
+	fprintf(stderr, "usage: alf fontfile.ttf fontsize\n");
+	fprintf(stderr, "fontsize is desired height in px\n");
 }
 
 void print_raw_glyph_bmp(FT_Bitmap bmp) {
-	printf("Raw glyph size: %d x %d\n", bmp.width, bmp.rows);
+	fprintf(stderr, "Raw glyph size: %d x %d\n", bmp.width, bmp.rows);
 	
 	for (int y = 0; y < bmp.rows; y++) {
 		int bpr = bmp.width / 8 + (bmp.width % 8 ? 1 : 0);
@@ -70,7 +70,7 @@ void print_cell_bmp(FT_Bitmap bmp, int bmpLeft, int bmpTop, int cellWidth, int c
 	int charRows = bmp.rows;
 	int bottomRows = cellHeight - topRows - charRows;
 
-	printf("Char %dx%d left %d top %d in cell %dx%d -> topRows %d, charRows %d, bottomRows %d\n", bmp.width, bmp.rows, bmpLeft, bmpTop, cellWidth, cellHeight, topRows, charRows, bottomRows);
+	fprintf(stderr, "Char %dx%d left %d top %d in cell %dx%d -> topRows %d, charRows %d, bottomRows %d\n", bmp.width, bmp.rows, bmpLeft, bmpTop, cellWidth, cellHeight, topRows, charRows, bottomRows);
 
 	int binSize = (cellWidth / 8) + (cellWidth % 8 ? 1 : 0);
 	byte* buff = malloc(binSize);
@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
 
 	err = FT_Init_FreeType(&lib);
 	if (err) {
-		printf("Error initializing FreeType library!\n");
+		fprintf(stderr, "Error initializing FreeType library!\n");
 		return 2;
 	}
 	
@@ -140,29 +140,29 @@ int main(int argc, char** argv) {
 
 	err = FT_New_Face(lib, fn, 0, &face);
 	if (err) {
-		printf("Unable to create FreeType face from %s\n", fn);
+		fprintf(stderr, "Unable to create FreeType face from %s\n", fn);
 		return 2;
 	}
 
-	printf("Font Info: %s\n", fn);
-	printf("Number of faces:  %d\n", face->num_faces);
-	printf("Number of glyphs: %d\n", face->num_glyphs);
-	printf("Flags:            0x%04X\n", face->face_flags);
-	printf("Fixed Sizes:      %d\n", face->num_fixed_sizes);
+	fprintf(stderr, "Font Info: %s\n", fn);
+	fprintf(stderr, "Number of faces:  %d\n", face->num_faces);
+	fprintf(stderr, "Number of glyphs: %d\n", face->num_glyphs);
+	fprintf(stderr, "Flags:            0x%04X\n", face->face_flags);
+	fprintf(stderr, "Fixed Sizes:      %d\n", face->num_fixed_sizes);
 	if (face->num_fixed_sizes) {
 		for (int i = 0; i < face->num_fixed_sizes; i++) {
-			printf("    * %dx%d\n", face->available_sizes[i].width, face->available_sizes[i].height);
+			fprintf(stderr, "    * %dx%d\n", face->available_sizes[i].width, face->available_sizes[i].height);
 		}
 	}
 
 	int fs = atoi(argv[2]);
 	err = FT_Set_Pixel_Sizes(face, 0, fs);
 	if (err) {
-		printf("Unable to set size %d for font.\n", fs);
+		fprintf(stderr, "Unable to set size %d for font.\n", fs);
 		return 2;
 	}
-	printf("\nSet font size to %dpx height\n\n", fs);
-	printf("Collecting stats\n");
+	fprintf(stderr, "\nSet font size to %dpx height\n\n", fs);
+	fprintf(stderr, "Collecting stats\n");
 	
 	FT_GlyphSlot slot = face->glyph;
 	int minLeft = 1e6;
@@ -175,13 +175,13 @@ int main(int argc, char** argv) {
 
 		err = FT_Load_Glyph(face, gidx, 0);
 		if (err) {
-			printf("Unable to load Glpyh %d into slot\n", gidx);
+			fprintf(stderr, "Unable to load Glpyh %d into slot\n", gidx);
 			return 2;
 		}
 
 		err = FT_Render_Glyph(slot, FT_RENDER_MODE_MONO);
 		if (err) {
-			printf("Unable to render Glyph %d\n", gidx);
+			fprintf(stderr, "Unable to render Glyph %d\n", gidx);
 			return 2;
 		}
 		
@@ -196,12 +196,12 @@ int main(int argc, char** argv) {
 		if (charBot > maxBot) maxBot = charBot;
 	}
 
-	printf("Char BB: left %d right %d top %d bot %d\n", minLeft, maxRight, minTop, maxBot);
+	fprintf(stderr, "Char BB: left %d right %d top %d bot %d\n", minLeft, maxRight, minTop, maxBot);
 
 	int cellWidth = maxRight - minLeft;
 	int cellHeight = maxBot - minTop;
-	printf("Cell Size: %d x %d\n", cellWidth, cellHeight);
-	printf("Rendering into fixed-size cell.\n");
+	fprintf(stderr, "Cell Size: %d x %d\n", cellWidth, cellHeight);
+	fprintf(stderr, "Rendering into fixed-size cell.\n");
 	
 	for (int c = minChar; c <= maxChar; c++) {
 		int gidx = FT_Get_Char_Index(face, c);
