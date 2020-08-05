@@ -92,6 +92,20 @@ void print_char_fontdata(FT_Bitmap bmp, int bmpTop, int cellHeight, int cellBase
 	}
 }
 
+void print_space_fontdata(int charWidth, int cellHeight) {
+	int binSize = bytes_for_charWidth(charWidth);
+	byte* buff = malloc(binSize);
+
+	for (int y = 0; y < cellHeight; y++) {
+		for (int i = 0; i < binSize; i++) buff[i] = 0;
+
+		print_char_bin_hex(buff, charWidth, ", ");
+		printf(" //|");
+		print_char_bin_bmp(buff, charWidth);
+		printf("|\n");
+	}
+}
+
 int main(int argc, char** argv) {
 	if (argc != 3) {
 		usage();
@@ -185,9 +199,17 @@ int main(int argc, char** argv) {
 		FT_Load_Glyph(face, gidx, 0);
 		FT_Render_Glyph(slot, FT_RENDER_MODE_MONO);
 		printf("/* Char %d - '%c' */\n", c, c);
-		print_char_fontdata(slot->bitmap, slot->bitmap_top, cellHeight, maxBot);
-		charOffsets[c - minChar] = currOffset;
-		currOffset += bytes_for_charWidth(slot->bitmap.width) * cellHeight;
+		// HACK to fix zero-width space
+		if (c == 32 && slot->bitmap.width == 0) {
+			print_space_fontdata(meanWidth, cellHeight);
+			charWidths[c - minChar] = meanWidth;
+			charOffsets[c - minChar] = currOffset;
+			currOffset += bytes_for_charWidth(meanWidth) * cellHeight;
+		} else {
+			print_char_fontdata(slot->bitmap, slot->bitmap_top, cellHeight, maxBot);
+			charOffsets[c - minChar] = currOffset;
+			currOffset += bytes_for_charWidth(slot->bitmap.width) * cellHeight;
+		}
 	}
 	printf("};\n\n");
 	printf("unsigned char offsetData[] = {\n");
