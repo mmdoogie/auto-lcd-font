@@ -7,8 +7,8 @@ int minChar = 32;
 int maxChar = 126;
 
 typedef unsigned char byte;
-const char* MARK = "**";
-const char* SPACE = "  ";
+const char* MARK = "*";
+const char* SPACE = " ";
 
 void usage() {
 	fprintf(stderr, "usage: alf fontfile.ttf fontsize\n");
@@ -202,7 +202,10 @@ int main(int argc, char** argv) {
 	int cellHeight = maxBot - minTop;
 	fprintf(stderr, "Cell Size: %d x %d\n", cellWidth, cellHeight);
 	fprintf(stderr, "Rendering into fixed-size cell.\n");
-	
+
+	printf("#include <MonoBitFont.h>\n\n");
+	printf("extern \"C\" MonoBitFont *NewFont;\n\n");
+	printf("unsigned char fontData[] = {\n");
 	for (int c = minChar; c <= maxChar; c++) {
 		int gidx = FT_Get_Char_Index(face, c);
 		FT_Load_Glyph(face, gidx, 0);
@@ -210,6 +213,8 @@ int main(int argc, char** argv) {
 		printf("/* Char %d - '%c' */\n", c, c);
 		print_cell_fontdata(slot->bitmap, slot->bitmap_left, slot->bitmap_top, cellWidth, cellHeight, maxBot);
 	}
+	printf("};\n\n");
+	printf("MonoBitFont *NewFont = new MonoBitFont(fontData, %d, %d);\n", cellWidth, cellHeight);
 
 	return 0;
 }
