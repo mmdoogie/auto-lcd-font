@@ -1,9 +1,10 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
 int minChar = 32;
-int maxChar = 127;
+int maxChar = 126;
 
 typedef unsigned char byte;
 const char* MARK = "**";
@@ -14,16 +15,16 @@ void usage() {
 	printf("fontsize is desired height in px\n");
 }
 
-void print_raw_bmp(FT_Bitmap bmp, int left, int top) {
-	printf("Glyph size: %d x %d, left %d top %d\n", bmp.width, bmp.rows, left, top);
-	return;
+void print_raw_glyph_bmp(FT_Bitmap bmp) {
+	printf("Raw glyph size: %d x %d\n", bmp.width, bmp.rows);
+	
 	for (int y = 0; y < bmp.rows; y++) {
 		int bpr = bmp.width / 8 + (bmp.width % 8 ? 1 : 0);
 		int w = 0;
 		for (int x = 0; x < bpr; x++) {
 			unsigned char v = bmp.buffer[y * bmp.pitch + x];
 			for (int i = 0; i < 8; i++) {
-				printf("%c", (v & 0x80) ? '#' : ' ');
+				printf("%s", (v & 0x80) ? MARK : SPACE);
 				v = v << 1;
 				if (++w == bmp.width) break;
 			}
@@ -32,38 +33,90 @@ void print_raw_bmp(FT_Bitmap bmp, int left, int top) {
 	}
 }
 
-void print_fs_bmp(FT_Bitmap bmp, int bmpLeft, int bmpTop, int cellWidth, int cellHeight, int cellBaseline) {
+void cell_bin_for_row(byte* buff, byte* row, int left, int charWidth, int cellWidth) {
+	for (int x = 0; x < cellWidth; x++) {
+		byte* b = buff + (x / 8);
+
+		if (x % 8 == 0) *b = 0;
+		if (x < left) continue;
+
+		int cx = x - left;
+		if (cx >= charWidth) continue;
+
+		if (row[cx / 8] & (1 << (7 - (cx % 8)))) *b = *b | (1 << (7 - (x % 8)));
+	}
+}
+
+void print_cell_bin_bmp(byte* buff, int cellWidth) {
+	for (int x = 0; x < cellWidth; x++) {
+		if (buff[x / 8] & (1 << (7 - (x % 8)))) {
+			printf("%s", MARK);
+		} else {
+			printf("%s", SPACE);
+		}
+	}
+}
+
+void print_cell_bin_hex(byte* buff, int cellWidth, char* sep) {
+	int byteCount = cellWidth / 8 + ((cellWidth % 8) ? 1 : 0);
+
+	for (int i = 0; i < byteCount; i++) {
+		printf("0x%02X%s", buff[i], sep);
+	}
+}
+
+void print_cell_bmp(FT_Bitmap bmp, int bmpLeft, int bmpTop, int cellWidth, int cellHeight, int cellBaseline) {
 	int topRows = cellHeight - bmpTop - cellBaseline;
 	int charRows = bmp.rows;
 	int bottomRows = cellHeight - topRows - charRows;
 
-	printf("Char %dx%d left %d top %d cell %dx%d -> topr %d, charr %d, botr %d\n", bmp.width,bmp.rows, bmpLeft,bmpTop,cellWidth,cellHeight,topRows,charRows, bottomRows);
-	
+	printf("Char %dx%d left %d top %d in cell %dx%d -> topRows %d, charRows %d, bottomRows %d\n", bmp.width, bmp.rows, bmpLeft, bmpTop, cellWidth, cellHeight, topRows, charRows, bottomRows);
+
+	int binSize = (cellWidth / 8) + (cellWidth % 8 ? 1 : 0);
+	byte* buff = malloc(binSize);
+
 	for (int y = 0; y < cellHeight; y++) {
 		if (y < topRows) {
-			printf("T ");
-			for (int x = 0; x < cellWidth; x++) printf(SPACE);
+			for (int i = 0; i < binSize; i++) buff[i] = 0;
 		} else if (y < topRows + charRows) {
 			int cy = y - topRows;
-			printf("%02d", cy);
-			for (int x = 0; x < cellWidth; x++) {
-				int cx = x - bmpLeft;
-				if (x < bmpLeft) {
-					printf(SPACE);
-				} else if (cx < bmp.width) {
-					byte* row = bmp.buffer + (cy * bmp.pitch);
-					int o = cx / 8;
-					int s = 7 - (cx % 8);
-					printf("%s", row[o] & (1 << s) ? MARK : SPACE);
-				} else {
-					printf(SPACE);
-				}
-			}
+			byte* row = bmp.buffer + (cy * bmp.pitch);
+			cell_bin_for_row(buff, row, bmpLeft, bmp.width, cellWidth);
 		} else {
-			printf("B ");
-			for (int x = 0; x < cellWidth; x++) printf(SPACE);
+			for (int i = 0; i < binSize; i++) buff[i] = 0;
 		}
-		printf("|\n");
+		
+		printf("|");
+		print_cell_bin_bmp(buff, cellWidth);
+		printf("| ");
+		print_cell_bin_hex(buff, cellWidth, " ");
+		printf("\n");
+	}
+}
+
+void print_cell_fontdata(FT_Bitmap bmp, int bmpLeft, int bmpTop, int cellWidth, int cellHeight, int cellBaseline) {
+	int topRows = cellHeight - bmpTop - cellBaseline;
+	int charRows = bmp.rows;
+	int bottomRows = cellHeight - topRows - charRows;
+
+	int binSize = (cellWidth / 8) + (cellWidth % 8 ? 1 : 0);
+	byte* buff = malloc(binSize);
+
+	for (int y = 0; y < cellHeight; y++) {
+		if (y < topRows) {
+			for (int i = 0; i < binSize; i++) buff[i] = 0;
+		} else if (y < topRows + charRows) {
+			int cy = y - topRows;
+			byte* row = bmp.buffer + (cy * bmp.pitch);
+			cell_bin_for_row(buff, row, bmpLeft, bmp.width, cellWidth);
+		} else {
+			for (int i = 0; i < binSize; i++) buff[i] = 0;
+		}
+
+		print_cell_bin_hex(buff, cellWidth, ", ");
+		printf(" //");
+		print_cell_bin_bmp(buff, cellWidth);
+		printf("\n");
 	}
 }
 
@@ -154,7 +207,8 @@ int main(int argc, char** argv) {
 		int gidx = FT_Get_Char_Index(face, c);
 		FT_Load_Glyph(face, gidx, 0);
 		FT_Render_Glyph(slot, FT_RENDER_MODE_MONO);
-		print_fs_bmp(slot->bitmap, slot->bitmap_left, slot->bitmap_top, cellWidth, cellHeight, maxBot);
+		printf("/* Char %d - '%c' */\n", c, c);
+		print_cell_fontdata(slot->bitmap, slot->bitmap_left, slot->bitmap_top, cellWidth, cellHeight, maxBot);
 	}
 
 	return 0;
