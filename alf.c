@@ -33,22 +33,19 @@ void print_raw_glyph_bmp(FT_Bitmap bmp) {
 	}
 }
 
-void cell_bin_for_row(byte* buff, byte* row, int left, int charWidth, int cellWidth) {
-	for (int x = 0; x < cellWidth; x++) {
+void char_bin_for_row(byte* buff, byte* row, int charWidth) {
+	for (int x = 0; x < charWidth; x++) {
 		byte* b = buff + (x / 8);
 
 		if (x % 8 == 0) *b = 0;
-		if (x < left) continue;
+		if (x >= charWidth) continue;
 
-		int cx = x - left;
-		if (cx >= charWidth) continue;
-
-		if (row[cx / 8] & (1 << (7 - (cx % 8)))) *b = *b | (1 << (7 - (x % 8)));
+		if (row[x / 8] & (1 << (7 - (x % 8)))) *b = *b | (1 << (7 - (x % 8)));
 	}
 }
 
-void print_cell_bin_bmp(byte* buff, int cellWidth) {
-	for (int x = 0; x < cellWidth; x++) {
+void print_char_bin_bmp(byte* buff, int charWidth) {
+	for (int x = 0; x < charWidth; x++) {
 		if (buff[x / 8] & (1 << (7 - (x % 8)))) {
 			printf("%s", MARK);
 		} else {
@@ -57,22 +54,24 @@ void print_cell_bin_bmp(byte* buff, int cellWidth) {
 	}
 }
 
-void print_cell_bin_hex(byte* buff, int cellWidth, char* sep) {
-	int byteCount = cellWidth / 8 + ((cellWidth % 8) ? 1 : 0);
+int bytes_for_charWidth(int charWidth) {
+	return charWidth / 8 + ((charWidth % 8) ? 1 : 0);
+}
+
+void print_char_bin_hex(byte* buff, int charWidth, char* sep) {
+	int byteCount = bytes_for_charWidth(charWidth);
 
 	for (int i = 0; i < byteCount; i++) {
 		printf("0x%02X%s", buff[i], sep);
 	}
 }
 
-void print_cell_bmp(FT_Bitmap bmp, int bmpLeft, int bmpTop, int cellWidth, int cellHeight, int cellBaseline) {
+void print_char_fontdata(FT_Bitmap bmp, int bmpTop, int cellHeight, int cellBaseline) {
 	int topRows = cellHeight - bmpTop - cellBaseline;
 	int charRows = bmp.rows;
 	int bottomRows = cellHeight - topRows - charRows;
 
-	fprintf(stderr, "Char %dx%d left %d top %d in cell %dx%d -> topRows %d, charRows %d, bottomRows %d\n", bmp.width, bmp.rows, bmpLeft, bmpTop, cellWidth, cellHeight, topRows, charRows, bottomRows);
-
-	int binSize = (cellWidth / 8) + (cellWidth % 8 ? 1 : 0);
+	int binSize = bytes_for_charWidth(bmp.width);
 	byte* buff = malloc(binSize);
 
 	for (int y = 0; y < cellHeight; y++) {
@@ -81,42 +80,15 @@ void print_cell_bmp(FT_Bitmap bmp, int bmpLeft, int bmpTop, int cellWidth, int c
 		} else if (y < topRows + charRows) {
 			int cy = y - topRows;
 			byte* row = bmp.buffer + (cy * bmp.pitch);
-			cell_bin_for_row(buff, row, bmpLeft, bmp.width, cellWidth);
-		} else {
-			for (int i = 0; i < binSize; i++) buff[i] = 0;
-		}
-		
-		printf("|");
-		print_cell_bin_bmp(buff, cellWidth);
-		printf("| ");
-		print_cell_bin_hex(buff, cellWidth, " ");
-		printf("\n");
-	}
-}
-
-void print_cell_fontdata(FT_Bitmap bmp, int bmpLeft, int bmpTop, int cellWidth, int cellHeight, int cellBaseline) {
-	int topRows = cellHeight - bmpTop - cellBaseline;
-	int charRows = bmp.rows;
-	int bottomRows = cellHeight - topRows - charRows;
-
-	int binSize = (cellWidth / 8) + (cellWidth % 8 ? 1 : 0);
-	byte* buff = malloc(binSize);
-
-	for (int y = 0; y < cellHeight; y++) {
-		if (y < topRows) {
-			for (int i = 0; i < binSize; i++) buff[i] = 0;
-		} else if (y < topRows + charRows) {
-			int cy = y - topRows;
-			byte* row = bmp.buffer + (cy * bmp.pitch);
-			cell_bin_for_row(buff, row, bmpLeft, bmp.width, cellWidth);
+			char_bin_for_row(buff, row,  bmp.width);
 		} else {
 			for (int i = 0; i < binSize; i++) buff[i] = 0;
 		}
 
-		print_cell_bin_hex(buff, cellWidth, ", ");
-		printf(" //");
-		print_cell_bin_bmp(buff, cellWidth);
-		printf("\n");
+		print_char_bin_hex(buff, bmp.width, ", ");
+		printf(" //|");
+		print_char_bin_bmp(buff, bmp.width);
+		printf("|\n");
 	}
 }
 
@@ -165,10 +137,11 @@ int main(int argc, char** argv) {
 	fprintf(stderr, "Collecting stats\n");
 	
 	FT_GlyphSlot slot = face->glyph;
-	int minLeft = 1e6;
-	int maxRight = -1e6;
 	int minTop = 1e6;
 	int maxBot = -1e6;
+	int maxWidth = -1e6;
+	int *charWidths = malloc(sizeof(int) * (maxChar - minChar + 1));
+	int meanWidth = 0;
 
 	for (int c = minChar; c <= maxChar; c++) {
 		int gidx = FT_Get_Char_Index(face, c);
@@ -185,36 +158,49 @@ int main(int argc, char** argv) {
 			return 2;
 		}
 		
-		int charLeft = slot->bitmap_left;
-		int charRight = slot->bitmap_left + slot->bitmap.width;
 		int charTop = -slot->bitmap_top;
 		int charBot = -slot->bitmap_top + slot->bitmap.rows;
+		int charWidth = slot->bitmap.width;
+		charWidths[c - minChar] = charWidth;
+		meanWidth += charWidth;
 
-		if (charLeft < minLeft) minLeft = charLeft;
-		if (charRight > maxRight) maxRight = charRight;
 		if (charTop < minTop) minTop = charTop;
 		if (charBot > maxBot) maxBot = charBot;
+		if (charWidth > maxWidth) maxWidth = charWidth;
 	}
+	fprintf(stderr, "Char BB: top %d bot %d\n",  minTop, maxBot);
 
-	fprintf(stderr, "Char BB: left %d right %d top %d bot %d\n", minLeft, maxRight, minTop, maxBot);
-
-	int cellWidth = maxRight - minLeft;
 	int cellHeight = maxBot - minTop;
-	fprintf(stderr, "Cell Size: %d x %d\n", cellWidth, cellHeight);
-	fprintf(stderr, "Rendering into fixed-size cell.\n");
+	meanWidth = meanWidth / (maxChar - minChar + 1);
+	fprintf(stderr, "Cell Height: %d\nMean Width: %d\n", cellHeight, meanWidth);
+	fprintf(stderr, "Rendering into fixed-height cell.\n");
 
 	printf("#include <MonoBitFont.h>\n\n");
 	printf("extern \"C\" MonoBitFont *NewFont;\n\n");
 	printf("unsigned char fontData[] = {\n");
+	int *charOffsets = malloc(sizeof(int) * (maxChar - minChar + 1));
+	int currOffset = 0;
 	for (int c = minChar; c <= maxChar; c++) {
 		int gidx = FT_Get_Char_Index(face, c);
 		FT_Load_Glyph(face, gidx, 0);
 		FT_Render_Glyph(slot, FT_RENDER_MODE_MONO);
 		printf("/* Char %d - '%c' */\n", c, c);
-		print_cell_fontdata(slot->bitmap, slot->bitmap_left, slot->bitmap_top, cellWidth, cellHeight, maxBot);
+		print_char_fontdata(slot->bitmap, slot->bitmap_top, cellHeight, maxBot);
+		charOffsets[c - minChar] = currOffset;
+		currOffset += bytes_for_charWidth(slot->bitmap.width) * cellHeight;
 	}
 	printf("};\n\n");
-	printf("MonoBitFont *NewFont = new MonoBitFont(fontData, %d, %d);\n", cellWidth, cellHeight);
+	printf("unsigned char offsetData[] = {\n");
+	for (int c = minChar; c <= maxChar; c++) {
+		printf("0x%04X, ", charOffsets[c - minChar]);
+	}
+	printf("\n};\n\n");
+	printf("unsigned char widthData[] = {\n");
+	for (int c = minChar; c <= maxChar; c++) {
+		printf("0x%02X, ", charWidths[c - minChar]);
+	}
+	printf("\n};\n\n");
+	printf("MonoBitFont *NewFont = new MonoBitFont(fontData, offsetData, widthData, %d);\n", cellHeight);
 
 	return 0;
 }
