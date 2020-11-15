@@ -10,9 +10,12 @@ typedef unsigned char byte;
 const char* MARK = "*";
 const char* SPACE = " ";
 
+char transpose = 0;
+
 void usage() {
-	fprintf(stderr, "usage: alf fontfile.ttf fontsize\n");
+	fprintf(stderr, "usage: alf fontfile.ttf fontsize [-t]\n");
 	fprintf(stderr, "fontsize is desired height in px\n");
+	fprintf(stderr, "optional -t transposes font for vertical blitting\n");
 }
 
 void print_raw_glyph_bmp(FT_Bitmap bmp) {
@@ -72,23 +75,44 @@ void print_char_fontdata(FT_Bitmap bmp, int bmpTop, int cellHeight, int cellBase
 	int bottomRows = cellHeight - topRows - charRows;
 
 	int binSize = bytes_for_charWidth(bmp.width);
-	byte* buff = malloc(binSize);
+	byte* buff = malloc(binSize * cellHeight);
 
 	for (int y = 0; y < cellHeight; y++) {
 		if (y < topRows) {
-			for (int i = 0; i < binSize; i++) buff[i] = 0;
+			for (int i = 0; i < binSize; i++) buff[y*binSize+i] = 0;
 		} else if (y < topRows + charRows) {
 			int cy = y - topRows;
 			byte* row = bmp.buffer + (cy * bmp.pitch);
-			char_bin_for_row(buff, row,  bmp.width);
+			char_bin_for_row(buff+y*binSize, row, bmp.width);
 		} else {
-			for (int i = 0; i < binSize; i++) buff[i] = 0;
+			for (int i = 0; i < binSize; i++) buff[y*binSize+i] = 0;
 		}
+	}
 
-		print_char_bin_hex(buff, bmp.width, ", ");
-		printf(" //|");
-		print_char_bin_bmp(buff, bmp.width);
-		printf("|\n");
+	if (!transpose) {
+		for (int y = 0; y < cellHeight; y++) {
+			print_char_bin_hex(buff+y*binSize, bmp.width, ", ");
+			printf(" //|");
+			print_char_bin_bmp(buff+y*binSize, bmp.width);
+			printf("|\n");
+		}
+	} else {
+		int colSize = bytes_for_charWidth(cellHeight);
+		byte* outBuff = malloc(colSize);
+
+		for (int x = 0; x < bmp.width; x++) {
+			for (int i = 0; i < colSize; i++) outBuff[i] = 0;
+			for (int y = 0; y < cellHeight; y++) {
+				if (buff[y*binSize + x/8] & (1 << (7-x%8))) {
+					outBuff[y/8] += (1 << (y%8));
+				} else {
+				}
+			}
+			for (int y = 0; y < colSize; y++) {
+				printf("0x%02x, ", outBuff[y]);
+			}
+			printf("\n");
+		}
 	}
 }
 
@@ -107,10 +131,12 @@ void print_space_fontdata(int charWidth, int cellHeight) {
 }
 
 int main(int argc, char** argv) {
-	if (argc != 3) {
+	if (argc < 3 || argc > 4 || ((argc == 4) && strcmp(argv[3], "-t") != 0)) {
 		usage();
 		return 1;
 	}
+
+	if (argc == 4) transpose = 1;
 
 	int err;
 	FT_Library lib;
@@ -188,6 +214,7 @@ int main(int argc, char** argv) {
 	meanWidth = meanWidth / (maxChar - minChar + 1);
 	fprintf(stderr, "Cell Height: %d\nMean Width: %d\n", cellHeight, meanWidth);
 	fprintf(stderr, "Rendering into fixed-height cell.\n");
+	if (transpose) fprintf(stderr, "Transposing output.\n");
 
 	printf("#include <MonoBitFont.h>\n\n");
 	printf("extern \"C\" MonoBitFont *NewFont;\n\n");
